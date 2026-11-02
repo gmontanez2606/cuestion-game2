@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guessing Game — Think, Guess, Win!</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#17104a;--panel:#241765;--cyan:#50eaff;--yellow:#ffd84d;--pink:#ff67c8;--green:#6cf6ae}
+*{box-sizing:border-box}
+body{margin:0;padding:18px;background:radial-gradient(circle at top,#4430a2 0,#17104a 55%,#0c0928 100%);color:#fff;font-family:system-ui,Arial,sans-serif;text-align:center}
+.wrap{max-width:1000px;margin:auto}
+h1{font-size:clamp(2rem,6vw,4rem);margin:12px 0;color:var(--yellow);text-shadow:3px 4px 0 #9c2bba,0 0 18px #ff67c8}
+.subtitle{font-size:1.15rem;color:var(--cyan);font-weight:800}
+.panel{background:rgba(36,23,101,.94);border:2px solid #6857da;border-radius:20px;padding:18px;margin:16px auto;box-shadow:0 8px 0 #100a38}
+input,select{font:inherit;padding:12px;border:2px solid var(--cyan);border-radius:12px;max-width:100%;background:#fff;color:#17104a}
+button{font:inherit;font-weight:800;border:0;border-radius:13px;padding:12px 17px;margin:5px;cursor:pointer;color:#20124f;background:var(--yellow);box-shadow:0 4px 0 #b97d20}
+button:hover{filter:brightness(1.08);transform:translateY(-1px)}
+button:focus,input:focus,select:focus{outline:3px solid var(--pink);outline-offset:2px}
+button.secondary{background:var(--cyan);box-shadow:0 4px 0 #168caa}
+.categories{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.cat{background:#34258b;color:white;border:2px solid #7566ff;box-shadow:0 4px 0 #140d50}
+.cat.active{background:var(--pink);color:#211044;border-color:#fff}
+.card{background:#fff9ed;color:#211044;border-radius:18px;padding:18px;margin:15px 0}
+.emoji{font-size:3.3rem}
+#clue{font-size:1.15rem;font-weight:700}
+#feedback{min-height:30px;font-weight:800;color:#ffd84d}
+.stats{display:flex;justify-content:center;gap:22px;flex-wrap:wrap;font-weight:900;font-size:1.05rem}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+th,td{padding:10px 5px;border-bottom:1px solid #6755bd}
+th{color:var(--cyan)}
+.small{font-size:.85rem;color:#d6d0ff}
+footer{padding:12px;color:#cfc7ff}
+@media(max-width:520px){body{padding:8px}.panel{padding:12px}.stats{gap:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧩 GUESSING GAME</h1>
+  <div class="subtitle">THINK • GUESS • WIN!</div>
+  <p>Welcome to the ultimate guessing challenge!</p>
+
+  <section class="panel">
+    <label for="nickname"><b>Player nickname:</b></label><br><br>
+    <input id="nickname" maxlength="16" placeholder="Enter your nickname" autocomplete="nickname">
+    <p class="small">Choose a category, read the clue, and guess the answer.</p>
+    <div class="categories" id="categories"></div>
+  </section>
+
+  <section class="panel">
+    <div class="stats">
+      <span>⭐ Score: <span id="score">0</span></span>
+      <span>❤️ Tries left: <span id="tries">3</span></span>
+      <span>🧠 Question: <span id="qnum">0</span>/<span id="qtotal">10</span></span>
+    </div>
+    <div class="card">
+      <div class="emoji" id="emoji">❓</div>
+      <h2 id="categoryTitle">Pick a category!</h2>
+      <p id="clue">Your first clue will appear here.</p>
+      <button class="secondary" id="hintBtn">💡 Get another hint</button>
+      <p id="hint" class="small"></p>
+      <form id="answerForm">
+        <input id="answer" maxlength="60" placeholder="Type your answer..." autocomplete="off" aria-label="Your answer">
+        <button type="submit">GUESS!</button>
+      </form>
+      <div id="feedback" aria-live="polite"></div>
+      <button id="nextBtn" hidden>➡ NEXT RIDDLE</button>
+      <button id="startBtn">▶ START GAME</button>
+    </div>
+    <p class="small">Correct answer = 10 points. Each riddle gives you 3 tries.</p>
+  </section>
+
+  <section class="panel">
+    <h2>🏆 TOP 10 PLAYERS</h2>
+    <button class="secondary" id="refreshBtn">🔄 Refresh ranking</button>
+    <table>
+      <thead><tr><th>Rank</th><th>Player</th><th>Score</th></tr></thead>
+      <tbody id="ranking"><tr><td colspan="3">Set up Supabase to load scores.</td></tr></tbody>
+    </table>
+    <p id="dbStatus" class="small">Supabase is not configured yet.</p>
+  </section>
+  <footer>✨ Test your mind and become the champion! ✨</footer>
+</div>
+
+<script>
+// 1) Paste your Supabase project URL and publishable/anon key below.
+const SUPABASE_URL = "https://ikvouncbpmnvmuenjojv.supabase.co";
+const SUPABASE_KEY = "sb_publishable_bC-jfpDx5aeEL4I4QtU0Ig_JvaSiZ5e";
+let db = null;
+try {
+  if (window.supabase && SUPABASE_URL.startsWith("https://") &&
+      !SUPABASE_URL.includes("PASTE_") && SUPABASE_KEY &&
+      !SUPABASE_KEY.includes("PASTE_")) {
+    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+} catch (e) { console.error(e); }
+
+// All riddles are original short clues. Answers are normalized for easier matching.
+const BANK = {
+  "Food": [
+    {e:"🍕",q:"I am round, cheesy, and often cut into slices. What am I?",a:["pizza"],h:"I am a popular Italian dish."},
+    {e:"🍌",q:"I am a yellow fruit, and monkeys are often shown eating me. What am I?",a:["banana"],h:"Peel me before eating."},
+    {e:"🍿",q:"I am crunchy, made from corn, and loved at the movies. What am I?",a:["popcorn"],h:"I pop when heated."},
+    {e:"🍔",q:"I have a bun, a patty, and sometimes cheese and lettuce. What am I?",a:["hamburger","burger"],h:"You can order me with fries."},
+    {e:"🍦",q:"I am cold, sweet, and can melt on a hot day. What am I?",a:["ice cream","icecream"],h:"I come in cones and cups."},
+    {e:"🥕",q:"I am an orange vegetable that rabbits are famous for eating. What am I?",a:["carrot"],h:"I grow underground."},
+    {e:"🍫",q:"I am sweet, brown, and made from cacao. What am I?",a:["chocolate"],h:"People give me as a gift."},
+    {e:"🍉",q:"I am a big green fruit with a juicy red center. What am I?",a:["watermelon"],h:"I am refreshing in summer."},
+    {e:"🍳",q:"I can be fried or scrambled and come from a chicken. What am I?",a:["egg"],h:"I am often eaten at breakfast."},
+    {e:"🧀",q:"I am yellow or white, made from milk, and can go on pizza. What am I?",a:["cheese"],h:"Mice in cartoons love me."}
+  ],
+  "Colors": [
+    {e:"❤️",q:"What color is a ripe strawberry usually?",a:["red"],h:"It is also the color of many hearts."},
+    {e:"🌊",q:"What color is the clear daytime sky on a sunny day?",a:["blue","light blue"],h:"It is the color of the ocean in many pictures."},
+    {e:"🍋",q:"What color is a lemon?",a:["yellow"],h:"It is bright like sunshine."},
+    {e:"🥦",q:"What color are broccoli and many leaves?",a:["green"],h:"It is between blue and yellow in a rainbow."},
+    {e:"🖤",q:"What color is the night sky with no visible light?",a:["black"],h:"It is the opposite of white."},
+    {e:"☁️",q:"What color are fluffy clouds often drawn?",a:["white"],h:"Paper is often this color."},
+    {e:"🍇",q:"What color are many grapes and eggplants?",a:["purple","violet"],h:"Mix red and blue to get a version of me."},
+    {e:"🌸",q:"What color are many cherry blossoms and flamingos?",a:["pink"],h:"It is a light shade of red."},
+    {e:"🥥",q:"What color is the outside of a coconut often shown?",a:["brown"],h:"Chocolate can be this color."},
+    {e:"🥕",q:"What color is a typical carrot?",a:["orange"],h:"It is named after a fruit."}
+  ],
+  "Objects": [
+    {e:"⏰",q:"I tell you the time and may ring in the morning. What am I?",a:["alarm clock","clock"],h:"You may keep me on a bedside table."},
+    {e:"✏️",q:"I help you write, and you can sharpen me. What am I?",a:["pencil"],h:"Students use me at school."},
+    {e:"☂️",q:"I open above your head to help keep rain off you. What am I?",a:["umbrella"],h:"You may carry me on a rainy day."},
+    {e:"🔑",q:"I can unlock a door. What am I?",a:["key"],h:"You might keep me on a key ring."},
+    {e:"📚",q:"I have pages and can tell you a story. What am I?",a:["book"],h:"You can read me."},
+    {e:"🪥",q:"I help clean your teeth every day. What am I?",a:["toothbrush"],h:"Use me with toothpaste."},
+    {e:"📱",q:"I fit in your hand and let you call or message people. What am I?",a:["phone","cellphone","cell phone","mobile phone"],h:"You may use me to take photos."},
+    {e:"🪞",q:"You look into me to see your reflection. What am I?",a:["mirror"],h:"I am often found in a bathroom."},
+    {e:"✂️",q:"I have two blades and cut paper. What am I?",a:["scissors"],h:"I am often used for crafts."},
+    {e:"🎒",q:"You carry books and school supplies in me. What am I?",a:["backpack","school bag"],h:"Students often wear me on their backs."}
+  ],
+  "Songs": [
+    {e:"🎂",q:"Which song do people sing to celebrate someone's birthday?",a:["happy birthday","happy birthday to you"],h:"It starts with the words 'Happy birthday...'."},
+    {e:"🔔",q:"Which famous Christmas song repeats the sound of bells in its title?",a:["jingle bells"],h:"Its title describes bells jingling."},
+    {e:"🌈",q:"Which classic song asks us to imagine a place 'over' a colorful arc in the sky?",a:["somewhere over the rainbow","over the rainbow"],h:"The title mentions a rainbow."},
+    {e:"🕺",q:"Which song title invites you to do a famous dance called the twist?",a:["the twist"],h:"Its title is also a dance move."},
+    {e:"🌍",q:"Which Michael Jackson song title asks us to heal our planet?",a:["heal the world"],h:"The title begins with 'Heal the...'."},
+    {e:"👋",q:"Which Beatles song title is a cheerful greeting to a person named Jude?",a:["hey jude"],h:"It begins with 'Hey...'."},
+    {e:"🚣",q:"Which traditional song says to row your boat gently down the stream?",a:["row row row your boat","row your boat"],h:"The title repeats the word 'row'."},
+    {e:"⭐",q:"Which nursery rhyme begins by wondering about a little star?",a:["twinkle twinkle little star","twinkle twinkle"],h:"It starts with 'Twinkle, twinkle...'."},
+    {e:"🦈",q:"What is the name of the viral children's song about a baby sea predator?",a:["baby shark"],h:"The title has two words and the second is a sea animal."},
+    {e:"🎹",q:"Which Queen song title asks whether someone can 'feel the love' tonight? (Think of a famous Elton John song instead.)",a:["can you feel the love tonight"],h:"It is from The Lion King."}
+  ],
+  "Clothes": [
+    {e:"👟",q:"You wear me on your feet when you go for a run. What am I?",a:["sneakers","trainers","running shoes"],h:"I usually come as a pair."},
+    {e:"🧥",q:"You wear me over your clothes when the weather is cold. What am I?",a:["coat"],h:"I may have buttons and pockets."},
+    {e:"🧦",q:"You wear me inside your shoes to cover your feet. What am I?",a:["socks"],h:"I usually come in pairs."},
+    {e:"👖",q:"I have two legs and are often made of denim. What am I?",a:["jeans"],h:"Blue is a common color for me."},
+    {e:"👒",q:"You wear me on your head to protect yourself from the sun. What am I?",a:["hat"],h:"I can have a brim."},
+    {e:"👗",q:"I am a one-piece outfit often worn for parties. What am I?",a:["dress"],h:"I can be long or short."},
+    {e:"🧤",q:"You wear me on your hands when they feel cold. What am I?",a:["gloves"],h:"I usually have separate spaces for your fingers."},
+    {e:"🧣",q:"You wrap me around your neck to stay warm. What am I?",a:["scarf"],h:"I can be knitted."},
+    {e:"👕",q:"I am a casual top with short sleeves. What am I?",a:["t-shirt","tshirt","tee shirt"],h:"You might wear me with jeans."},
+    {e:"🩴",q:"I am an open shoe often worn at the beach. What am I?",a:["flip-flops","flip flops","sandals"],h:"I am easy to slip on."}
+  ],
+  "Animals": [
+    {e:"🐘",q:"I have a long trunk and very large ears. What am I?",a:["elephant"],h:"I am the largest land animal."},
+    {e:"🦒",q:"I have a very long neck and spots. What am I?",a:["giraffe"],h:"I can reach leaves high in trees."},
+    {e:"🐧",q:"I am a bird that cannot fly and I waddle on ice. What am I?",a:["penguin"],h:"I am often black and white."},
+    {e:"🐬",q:"I live in the ocean, breathe air, and am known for being clever. What am I?",a:["dolphin"],h:"I make clicks and whistles."},
+    {e:"🦁",q:"I am a big cat known as the king of the jungle. What am I?",a:["lion"],h:"The male often has a mane."},
+    {e:"🐢",q:"I move slowly and carry a shell on my back. What am I?",a:["turtle","tortoise"],h:"I can hide my head inside my shell."},
+    {e:"🦉",q:"I am a bird that is often awake at night and can turn my head far around. What am I?",a:["owl"],h:"I say 'hoot' in stories."},
+    {e:"🐝",q:"I buzz around flowers and help make honey. What am I?",a:["bee"],h:"I live in a hive."},
+    {e:"🦘",q:"I hop and carry my baby in a pouch. What am I?",a:["kangaroo"],h:"I am strongly associated with Australia."},
+    {e:"🐙",q:"I live in the sea and have eight arms. What am I?",a:["octopus"],h:"My name begins with O."}
+  ],
+  "Movies": [
+    {e:"❄️",q:"In this animated movie, Elsa sings about letting go of her powers. What movie is it?",a:["frozen"],h:"Anna is Elsa's sister."},
+    {e:"🦁",q:"Which Disney movie follows Simba, a young lion prince?",a:["the lion king","lion king"],h:"Hakuna Matata is a famous song from it."},
+    {e:"🐠",q:"Which animated movie follows a clownfish searching for his son Nemo?",a:["finding nemo"],h:"Dory helps with the search."},
+    {e:"🧸",q:"Which movie features toys that come alive when humans are away?",a:["toy story"],h:"Woody and Buzz are characters in it."},
+    {e:"🏠",q:"Which movie features a boy who befriends a giant alien and says 'E.T.'?",a:["e.t.","et","e.t. the extra-terrestrial","e.t. the extra terrestrial"],h:"The title is the alien's initials."},
+    {e:"🕷️",q:"Which superhero is known for climbing walls and shooting webs?",a:["spider-man","spiderman","spider man"],h:"His name includes a small eight-legged creature."},
+    {e:"🧙",q:"Which movie series features a young wizard named Harry?",a:["harry potter"],h:"He attends Hogwarts."},
+    {e:"🚢",q:"Which romantic disaster movie features a famous ship that hits an iceberg?",a:["titanic"],h:"The ship's name is the movie title."},
+    {e:"🐼",q:"Which animated movie features Po, a panda who learns kung fu?",a:["kung fu panda"],h:"The title includes a martial art."},
+    {e:"🦖",q:"Which adventure movie franchise brings dinosaurs back to life in a theme park?",a:["jurassic park"],h:"The title includes the word 'Jurassic'."}
+  ]
+};
+
+const categories=Object.keys(BANK);
+let selectedCategory="Food",questions=[],index=0,score=0,tries=3,started=false,answered=false,usedHint=false,sessionId=0;
+const $=id=>document.getElementById(id);
+$("qtotal").textContent=10;
+
+function normalize(s){
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+   .replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+}
+function renderCategories(){
+  $("categories").replaceChildren();
+  categories.forEach(cat=>{
+    const b=document.createElement("button");
+    b.className="cat"+(cat===selectedCategory?" active":"");
+    b.textContent=({Food:"🍔 Food",Colors:"🌈 Colors",Objects:"🔎 Objects",Songs:"🎵 Songs",Clothes:"👕 Clothes",Animals:"🐾 Animals",Movies:"🎬 Movies"})[cat];
+    b.onclick=()=>{selectedCategory=cat;renderCategories();if(started)loadQuestion();else {$("categoryTitle").textContent=cat+" Riddles";}};
+    $("categories").appendChild(b);
+  });
+}
+function startGame(){
+  const n=$("nickname").value.trim();
+  if(!n){$("feedback").textContent="Please enter your nickname first!";$("nickname").focus();return;}
+  $("nickname").value=n.slice(0,16);
+  questions=[...BANK[selectedCategory]].sort(()=>Math.random()-.5);
+  index=0;score=0;tries=3;started=true;answered=false;usedHint=false;sessionId++;
+  $("score").textContent=score;$("tries").textContent=tries;
+  $("startBtn").textContent="↻ RESTART GAME";
+  loadQuestion();
+}
+function loadQuestion(){
+  if(!started)return;
+  if(index>=questions.length){finishGame();return;}
+  const q=questions[index];
+  answered=false;tries=3;usedHint=false;
+  $("tries").textContent=tries;$("qnum").textContent=index+1;
+  $("emoji").textContent=q.e;
+  $("categoryTitle").textContent=selectedCategory+" Challenge";
+  $("clue").textContent=q.q;
+  $("hint").textContent="";
+  $("answer").value="";$("answer").disabled=false;
+  $("feedback").textContent="";
+  $("nextBtn").hidden=true;
+  $("answerForm").querySelector("button").disabled=false;
+  $("hintBtn").disabled=false;
+  $("answer").focus();
+}
+function showNext(){
+  $("answer").disabled=true;
+  $("answerForm").querySelector("button").disabled=true;
+  $("hintBtn").disabled=true;
+  $("nextBtn").hidden=false;
+}
+function checkAnswer(e){
+  e.preventDefault();
+  if(!started||answered)return;
+  const value=normalize($("answer").value);
+  if(!value){$("feedback").textContent="Type an answer first!";return;}
+  const q=questions[index];
+  if(q.a.some(a=>normalize(a)===value)){
+    score+=10;$("score").textContent=score;
+    $("feedback").textContent="🎉 Correct! +10 points!";
+    answered=true;showNext();
+  }else{
+    tries--;$("tries").textContent=tries;
+    if(tries>0){$("feedback").textContent="Not quite! Try again. "+tries+" attempt(s) left.";}
+    else{$("feedback").textContent="❌ Out of tries! Answer: "+q.a[0];answered=true;showNext();}
+  }
+}
+function getHint(){
+  if(!started||answered)return;
+  usedHint=true;$("hint").textContent="💡 Hint: "+questions[index].h;
+}
+$("answerForm").addEventListener("submit",checkAnswer);
+$("startBtn").addEventListener("click",startGame);
+$("hintBtn").addEventListener("click",getHint);
+$("nextBtn").addEventListener("click",()=>{index++;loadQuestion();});
+$("refreshBtn").addEventListener("click",loadRanking);
+
+async function finishGame(){
+  started=false;answered=true;
+  $("categoryTitle").textContent="Challenge complete!";
+  $("emoji").textContent="🏆";
+  $("clue").textContent="You finished all 10 riddles!";
+  $("hint").textContent="";
+  $("feedback").textContent="Final score: "+score+" points. Great job!";
+  $("answer").disabled=true;$("answerForm").querySelector("button").disabled=true;
+  $("hintBtn").disabled=true;$("nextBtn").hidden=true;
+  $("startBtn").textContent="▶ PLAY AGAIN";
+  await saveScore();
+}
+async function saveScore(){
+  if(!db){$("dbStatus").textContent="Supabase not configured — scores are not saved online yet.";return;}
+  const player=$("nickname").value.trim().slice(0,16);
+  try{
+    const {error}=await db.from("guessing_scores").insert([{nickname:player,score:score}]);
+    if(error)throw error;
+    $("dbStatus").textContent="✅ Score saved!";
+    await loadRanking();
+  }catch(e){console.error(e);$("dbStatus").textContent="Could not save score. Check your Supabase table and policies.";}
+}
+async function loadRanking(){
+  if(!db){
+    $("ranking").innerHTML='<tr><td colspan="3">Connect Supabase to show the online Top 10.</td></tr>';
+    $("dbStatus").textContent="Supabase is not configured yet.";
+    return;
+  }
+  $("dbStatus").textContent="Loading ranking...";
+  try{
+    const {data,error}=await db.from("guessing_scores").select("nickname,score,created_at")
+      .order("score",{ascending:false}).order("created_at",{ascending:true}).limit(10);
+    if(error)throw error;
+    $("ranking").replaceChildren();
+    if(!data.length){$("ranking").innerHTML='<tr><td colspan="3">Be the first to play!</td></tr>';}
+    else data.forEach((p,i)=>{
+      const tr=document.createElement("tr");
+      [(["🥇","🥈","🥉"][i]||String(i+1)),p.nickname,Number(p.score)].forEach(v=>{
+        const td=document.createElement("td");td.textContent=v;tr.appendChild(td);
+      });
+      $("ranking").appendChild(tr);
+    });
+    $("dbStatus").textContent="✅ Ranking updated.";
+  }catch(e){console.error(e);$("dbStatus").textContent="Ranking error: check the table name and permissions.";}
+}
+renderCategories();
+$("categoryTitle").textContent=selectedCategory+" Riddles";
+loadRanking();
+</script>
+</body>
+</html>
